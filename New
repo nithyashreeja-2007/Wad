@@ -1,0 +1,353 @@
+We'll use the same simple pattern as your working Employee–Bonus project: Spring Boot + MongoDB + Vue.js, with two models, two repositories, one controller, and no service class.
+
+The GET API will return a list of customers (`custid` and `name`) who have chosen veg food. We'll match `custid` between the `foodorders` and `customer` collections.
+
+### 1\. Backend — Spring Boot
+
+Create these files in IntelliJ:
+
+```text
+com.example.foodapp
+├── controller
+│   └── FoodController.java
+├── model
+│   ├── FoodOrder.java
+│   └── Customer.java
+├── repository
+│   ├── FoodOrderRepository.java
+│   └── CustomerRepository.java
+└── FoodappApplication.java
+```
+
+Add dependencies: Spring Web, Spring Data MongoDB, Lombok.
+
+### `FoodOrder.java`
+
+```java
+package com.example.foodapp.model;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Document(collection = "foodorders")
+public class FoodOrder {
+    @Id
+    private String foodid;
+    private String custid;
+    private String name;
+    private double price;
+    private String cat;
+}
+```
+
+### `Customer.java`
+
+```java
+package com.example.foodapp.model;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Document(collection = "customer")
+public class Customer {
+    @Id
+    private String custid;
+    private String name;
+}
+```
+
+### `FoodOrderRepository.java`
+
+```java
+package com.example.foodapp.repository;
+
+import com.example.foodapp.model.FoodOrder;
+import org.springframework.data.mongodb.repository.MongoRepository;
+
+public interface FoodOrderRepository
+        extends MongoRepository<FoodOrder, String> {
+}
+```
+
+### `CustomerRepository.java`
+
+```java
+package com.example.foodapp.repository;
+
+import com.example.foodapp.model.Customer;
+import org.springframework.data.mongodb.repository.MongoRepository;
+
+public interface CustomerRepository
+        extends MongoRepository<Customer, String> {
+}
+```
+
+### `FoodController.java`
+
+This controller has two POST methods and one GET method. No service class and no repository code are needed.
+
+```java
+package com.example.foodapp.controller;
+
+import com.example.foodapp.model.*;
+import com.example.foodapp.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import java.util.*;
+
+@RestController
+@RequestMapping("/api")
+@CrossOrigin(origins = "http://localhost:5173")
+public class FoodController {
+
+    @Autowired
+    FoodOrderRepository foodRepository;
+
+    @Autowired
+    CustomerRepository customerRepository;
+
+    // Add food order
+    @PostMapping("/foodorders")
+    public FoodOrder addFood(@RequestBody FoodOrder f) {
+        return foodRepository.save(f);
+    }
+
+    // Add customer
+    @PostMapping("/customers")
+    public Customer addCustomer(@RequestBody Customer c) {
+        return customerRepository.save(c);
+    }
+
+    // Get customers who chose veg food
+    @GetMapping("/vegcustomers")
+    public List<Customer> getVegCustomers() {
+
+        List<FoodOrder> foods = foodRepository.findAll();
+        List<Customer> customers = customerRepository.findAll();
+        List<Customer> result = new ArrayList<>();
+
+        for (FoodOrder f : foods) {
+            if (f.getCat() != null &&
+                f.getCat().equalsIgnoreCase("veg")) {
+
+                for (Customer c : customers) {
+                    if (c.getCustid().equals(f.getCustid()) &&
+                        !result.contains(c)) {
+                        result.add(c);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+}
+```
+
+### `application.properties`
+
+```properties
+spring.application.name=Foodapp
+spring.mongodb.uri=mongodb://localhost:27017/test
+server.port=8080
+```
+
+The database is `test`. MongoDB creates the `foodorders` and `customer` collections when records are saved.
+
+### 2\. Postman APIs
+
+Run your Spring Boot application first.
+
+### API 1 — Add a food order
+
+`http://localhost:8080/api/foodorders`
+
+Body → raw → JSON:
+
+```json
+{
+  "foodid": "F1",
+  "custid": "C101",
+  "name": "Paneer Rice",
+  "price": 150,
+  "cat": "veg"
+}
+```
+
+Add another food order:
+
+```json
+{
+  "foodid": "F2",
+  "custid": "C102",
+  "name": "Chicken Rice",
+  "price": 200,
+  "cat": "nonveg"
+}
+```
+
+### API 2 — Add a customer
+
+`http://localhost:8080/api/customers`
+
+Body → raw → JSON:
+
+```json
+{
+  "custid": "C101",
+  "name": "Arun"
+}
+```
+
+Add another customer:
+
+```json
+{
+  "custid": "C102",
+  "name": "Priya"
+}
+```
+
+### API 3 — Get all customers who chose veg
+
+`http://localhost:8080/api/vegcustomers`
+
+Expected response:
+
+```json
+[
+  {
+    "custid": "C101",
+    "name": "Arun"
+  }
+]
+```
+
+The GET method matches `custid` between both collections and returns only customers with at least one veg order.
+
+### 3\. Frontend — Vue.js
+
+Replace your `src/App.vue` with this simple code. No component, no table, and no `index.html` changes are needed.
+
+```vue
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const customers = ref([])
+const foodid = ref(''), custid = ref('')
+const name = ref(''), price = ref('')
+const cat = ref('')
+const cid = ref(''), cname = ref('')
+const page = ref('home')
+
+const foodApi = 'http://localhost:8080/api/foodorders'
+const custApi = 'http://localhost:8080/api/customers'
+const vegApi = 'http://localhost:8080/api/vegcustomers'
+
+async function getVeg() {
+  customers.value = await (await fetch(vegApi)).json()
+}
+
+async function saveFood() {
+  await fetch(foodApi, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      foodid: foodid.value,
+      custid: custid.value,
+      name: name.value,
+      price: Number(price.value),
+      cat: cat.value
+    })
+  })
+
+  alert('Food order saved')
+  foodid.value = custid.value = name.value = price.value = cat.value = ''
+}
+
+async function saveCustomer() {
+  await fetch(custApi, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      custid: cid.value,
+      name: cname.value
+    })
+  })
+
+  alert('Customer saved')
+  cid.value = cname.value = ''
+}
+
+onMounted(getVeg)
+</script>
+
+<template>
+  <h1>Food Order Management</h1>
+
+  <a href="#" @click.prevent="page='home'">Home</a> |
+  <a href="#" @click.prevent="page='food'">Add Food</a> |
+  <a href="#" @click.prevent="page='customer'">Add Customer</a> |
+  <a href="#" @click.prevent="page='veg'; getVeg()">Veg Customers</a>
+
+  <hr>
+
+  <div v-if="page==='home'">
+    <h2>Welcome</h2>
+  </div>
+
+  <div v-if="page==='food'">
+    <h2>Add Food Order</h2>
+    <input v-model="foodid" placeholder="Food ID">
+    <input v-model="custid" placeholder="Customer ID">
+    <input v-model="name" placeholder="Food Name">
+    <input v-model="price" type="number" placeholder="Price">
+    <input v-model="cat" placeholder="veg or nonveg">
+    <button @click="saveFood">Save Food</button>
+  </div>
+
+  <div v-if="page==='customer'">
+    <h2>Add Customer</h2>
+    <input v-model="cid" placeholder="Customer ID">
+    <input v-model="cname" placeholder="Customer Name">
+    <button @click="saveCustomer">Save Customer</button>
+  </div>
+
+  <div v-if="page==='veg'">
+    <h2>Customers Who Chose Veg</h2>
+    <button @click="getVeg">Refresh</button>
+    <p v-for="c in customers" :key="c.custid">
+      {{ c.custid }} - {{ c.name }}
+    </p>
+    <p v-if="customers.length===0">No veg customers found</p>
+  </div>
+</template>
+```
+
+### 4\. Test in this order
+
+* Start MongoDB and Spring Boot.
+
+* Run Vue using `npm run dev`.
+
+* Add a customer with ID `C101`.
+
+* Add a food order with customer ID `C101` and category `veg`.
+
+* Click Veg Customers.
+
+You should see `C101 - Arun`.
+
+Exam tip: Remember the pattern: two model classes → two repositories → one controller with two POST methods and one GET method → Vue uses `fetch()` to call each API.
